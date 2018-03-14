@@ -8,12 +8,12 @@ import android.util.Log;
 import android.widget.TextView;
 
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicLong;
 
 import butterknife.BindView;
 import butterknife.ButterKnife;
 import io.reactivex.Observable;
 import io.reactivex.android.schedulers.AndroidSchedulers;
-import io.reactivex.schedulers.Schedulers;
 import psl.com.pstocklive.alphavantage.AlphaVantageService;
 import psl.com.pstocklive.alphavantage.RetrofitAlphaVantageServiceFactory;
 
@@ -49,16 +49,21 @@ public class MainActivity extends AppCompatActivity {
 
         String[] symbols = {"BGNE", "UCTT", "VIPS", "AMD", "NVDA", "SNAP", "NFLX", "MSFT", "AMZN", "GOOG", "AAPL"};
 
-        Observable.interval(0, 20, TimeUnit.SECONDS)
-                .switchMap(i -> Observable.fromArray(symbols))
-                .flatMap(s -> avService.intradayQuery(s).toObservable())
-                .subscribeOn(Schedulers.io())
+        AtomicLong index = new AtomicLong(0);
+        Observable.interval(0, 3, TimeUnit.SECONDS)
+                .doOnNext(i -> {
+                    index.lazySet(i + 1);
+                    Log.d("APP", "new interval " + i);
+                })
+                .switchMap(i -> Observable.fromArray(symbols).doOnDispose(() -> helloText.setText("Refreshing..." + index)).unsubscribeOn(AndroidSchedulers.mainThread()))
+                .concatMap(s -> avService.intradayQuery(s).toObservable())
+                .filter(r -> r != null && r.getMetaData() != null)
                 .map(r -> StockUpdate.create(r))
                 .observeOn(AndroidSchedulers.mainThread())
                 .subscribe(stockUpdate -> {
                     Log.d("APP", "New update " + stockUpdate.getStockSymbol());
                     stockDataAdapter.add(stockUpdate);
-                });
+                }, e -> Log.e("APP", "onError " + e));
     }
 
     private void log(Throwable throwable) {
